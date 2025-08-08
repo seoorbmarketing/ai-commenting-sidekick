@@ -178,8 +178,11 @@ Never use quotation marks around your response.`;
           userId: user.id, 
           error: creditError 
         });
-        // Don't fail the request, but log the issue
         console.error('Credit deduction failed:', creditError);
+        // Fail the request if credits can't be deducted
+        return res.status(500).json({ 
+          error: 'Failed to process credits. Please try again.' 
+        });
       }
 
       purchaseId = creditResult?.[0]?.purchase_id;
