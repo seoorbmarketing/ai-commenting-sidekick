@@ -166,19 +166,26 @@ Never use quotation marks around your response.`;
     let subscriptionId = null;
     
     if (!isUsingOwnApiKey) {
-      // First check if user has credits
-      const { data: creditCheck, error: checkError } = await supabaseAdmin
-        .rpc('get_user_credits', { p_user_id: user.id });
+      // First check if user has credits - query directly like credits.js does
+      const now = new Date().toISOString();
+      const { data: activePurchases, error: checkError } = await supabaseAdmin
+        .from('credit_purchases')
+        .select('remaining_credits')
+        .eq('user_id', user.id)
+        .gt('expires_at', now)
+        .gt('remaining_credits', 0);
       
-      if (checkError || !creditCheck || creditCheck[0]?.available_credits < 1) {
+      const availableCredits = activePurchases?.reduce((sum, p) => sum + p.remaining_credits, 0) || 0;
+      
+      if (checkError || availableCredits < 1) {
         console.error('Insufficient credits:', {
           checkError,
-          creditCheck,
+          availableCredits,
           userId: user.id
         });
         return res.status(402).json({ 
           error: 'Insufficient credits. Please add more credits to continue.',
-          available_credits: creditCheck?.[0]?.available_credits || 0
+          available_credits: availableCredits
         });
       }
       
