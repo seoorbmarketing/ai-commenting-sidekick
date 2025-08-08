@@ -166,6 +166,22 @@ Never use quotation marks around your response.`;
     let subscriptionId = null;
     
     if (!isUsingOwnApiKey) {
+      // First check if user has credits
+      const { data: creditCheck, error: checkError } = await supabaseAdmin
+        .rpc('get_user_credits', { p_user_id: user.id });
+      
+      if (checkError || !creditCheck || creditCheck[0]?.available_credits < 1) {
+        console.error('Insufficient credits:', {
+          checkError,
+          creditCheck,
+          userId: user.id
+        });
+        return res.status(402).json({ 
+          error: 'Insufficient credits. Please add more credits to continue.',
+          available_credits: creditCheck?.[0]?.available_credits || 0
+        });
+      }
+      
       const { data: creditResult, error: creditError } = await supabaseAdmin
         .rpc('use_credits', { 
           p_user_id: user.id, 
@@ -176,12 +192,24 @@ Never use quotation marks around your response.`;
       if (creditError || !creditResult || !creditResult[0]?.success) {
         logSecurityEvent('CREDIT_DEDUCTION_FAILED', { 
           userId: user.id, 
-          error: creditError 
+          error: creditError,
+          result: creditResult
         });
-        console.error('Credit deduction failed:', creditError);
+        console.error('Credit deduction failed:', {
+          error: creditError,
+          result: creditResult,
+          userId: user.id
+        });
+        
+        // Provide more specific error message
+        const errorMessage = creditResult?.[0]?.error_message || 
+                           creditError?.message || 
+                           'Failed to process credits. Please try again.';
+        
         // Fail the request if credits can't be deducted
         return res.status(500).json({ 
-          error: 'Failed to process credits. Please try again.' 
+          error: errorMessage,
+          details: creditError?.details || 'Credit deduction failed'
         });
       }
 
