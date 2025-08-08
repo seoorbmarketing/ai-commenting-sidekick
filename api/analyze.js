@@ -197,39 +197,47 @@ Never use quotation marks around your response.`;
         });
       }
       
-      const { data: creditResult, error: creditError } = await supabaseAdmin
-        .rpc('use_credits', { 
-          p_user_id: user.id, 
-          p_credits_to_use: 1,
-          p_api_key_used: false 
-        });
-
-      if (creditError || !creditResult || !creditResult[0]?.success) {
-        logSecurityEvent('CREDIT_DEDUCTION_FAILED', { 
-          userId: user.id, 
-          error: creditError,
-          result: creditResult
-        });
-        console.error('Credit deduction failed:', {
-          error: creditError,
-          result: creditResult,
-          userId: user.id
-        });
-        
-        // Provide more specific error message
-        const errorMessage = creditResult?.[0]?.error_message || 
-                           creditError?.message || 
-                           'Failed to process credits. Please try again.';
-        
-        // Fail the request if credits can't be deducted
-        return res.status(500).json({ 
-          error: errorMessage,
-          details: creditError?.details || 'Credit deduction failed'
+      // Directly update credits instead of using RPC function
+      // Find the oldest credit purchase with remaining credits
+      const { data: creditPurchase, error: findError } = await supabaseAdmin
+        .from('credit_purchases')
+        .select('id, remaining_credits, subscription_id')
+        .eq('user_id', user.id)
+        .gt('remaining_credits', 0)
+        .or(`expires_at.is.null,expires_at.gt.${now}`)
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .single();
+      
+      if (findError || !creditPurchase) {
+        console.error('No valid credit purchase found:', findError);
+        return res.status(402).json({ 
+          error: 'No valid credits found',
+          details: findError?.message
         });
       }
-
-      purchaseId = creditResult?.[0]?.purchase_id;
-      subscriptionId = creditResult?.[0]?.subscription_id;
+      
+      // Deduct 1 credit
+      const { data: creditResult, error: creditError } = await supabaseAdmin
+        .from('credit_purchases')
+        .update({ 
+          remaining_credits: creditPurchase.remaining_credits - 1,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', creditPurchase.id)
+        .select()
+        .single();
+      
+      if (creditError) {
+        console.error('Failed to deduct credit:', creditError);
+        return res.status(500).json({ 
+          error: 'Failed to deduct credit',
+          details: creditError?.message
+        });
+      }
+      
+      purchaseId = creditPurchase.id;
+      subscriptionId = creditPurchase.subscription_id;
     }
 
     // Log usage (without storing sensitive data)
