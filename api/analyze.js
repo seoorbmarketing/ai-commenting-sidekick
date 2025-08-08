@@ -170,10 +170,16 @@ Never use quotation marks around your response.`;
       const now = new Date().toISOString();
       const { data: activePurchases, error: checkError } = await supabaseAdmin
         .from('credit_purchases')
-        .select('remaining_credits')
+        .select('remaining_credits, expires_at')
         .eq('user_id', user.id)
-        .gt('expires_at', now)
-        .gt('remaining_credits', 0);
+        .gt('remaining_credits', 0)
+        .or(`expires_at.is.null,expires_at.gt.${now}`);
+      
+      console.log('[Analyze] Credit check:', {
+        userId: user.id,
+        purchases: activePurchases,
+        error: checkError
+      });
       
       const availableCredits = activePurchases?.reduce((sum, p) => sum + p.remaining_credits, 0) || 0;
       
@@ -181,11 +187,13 @@ Never use quotation marks around your response.`;
         console.error('Insufficient credits:', {
           checkError,
           availableCredits,
+          activePurchases,
           userId: user.id
         });
         return res.status(402).json({ 
           error: 'Insufficient credits. Please add more credits to continue.',
-          available_credits: availableCredits
+          available_credits: availableCredits,
+          debug: { purchaseCount: activePurchases?.length || 0 }
         });
       }
       
