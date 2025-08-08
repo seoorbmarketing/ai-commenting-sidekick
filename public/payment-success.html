@@ -101,29 +101,63 @@
         const sessionId = params.get('session_id');
         const type = params.get('type');
         
-        // Instead of hardcoding extension ID, show success message
-        // The extension will poll for successful payment using the session ID
+        // Trigger subscription creation immediately
+        async function triggerSubscription() {
+            if (!sessionId) {
+                console.error('No session ID found');
+                return;
+            }
+            
+            console.log('Triggering subscription for session:', sessionId);
+            
+            try {
+                const response = await fetch('/api/debug?action=manual-trigger', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ sessionId })
+                });
+                
+                const result = await response.json();
+                console.log('Manual trigger result:', result);
+                
+                if (response.ok) {
+                    document.getElementById('manual-message').innerHTML = `
+                        <p><strong>✅ Subscription activated successfully!</strong></p>
+                        <p>Please return to the extension window. Your ${type === 'subscription' ? 'Pro subscription' : 'credits'} are now active.</p>
+                        <p style="margin-top: 15px; font-size: 14px; color: #666;">You can close this tab.</p>
+                    `;
+                } else {
+                    console.error('Manual trigger failed:', result);
+                    document.getElementById('manual-message').innerHTML = `
+                        <p><strong>Payment completed successfully!</strong></p>
+                        <p>Please return to the extension window. Your ${type === 'subscription' ? 'Pro subscription' : 'credits'} will be activated shortly.</p>
+                        <p style="margin-top: 15px; font-size: 14px; color: #666;">If the subscription doesn't appear, please close and reopen the extension.</p>
+                    `;
+                }
+            } catch (error) {
+                console.error('Error triggering subscription:', error);
+                document.getElementById('manual-message').innerHTML = `
+                    <p><strong>Payment completed successfully!</strong></p>
+                    <p>Please return to the extension window. Your ${type === 'subscription' ? 'Pro subscription' : 'credits'} will be activated shortly.</p>
+                    <p style="margin-top: 15px; font-size: 14px; color: #666;">You can close this tab.</p>
+                `;
+            }
+            
+            document.getElementById('manual-message').style.display = 'block';
+            
+            // Remove the loading spinner
+            document.querySelector('.loading').parentElement.innerHTML = 'Processing your subscription...';
+        }
         
-        // Show success message immediately
-        document.getElementById('manual-message').innerHTML = `
-            <p><strong>Payment completed successfully!</strong></p>
-            <p>Please return to the extension window. Your ${type === 'subscription' ? 'Pro subscription' : 'credits'} will be activated automatically.</p>
-            <p style="margin-top: 15px; font-size: 14px; color: #666;">You can close this tab.</p>
-        `;
-        document.getElementById('manual-message').style.display = 'block';
-        
-        // Remove the loading spinner since we're not redirecting
-        document.querySelector('.loading').parentElement.innerHTML = 'Your payment has been processed.';
+        // Trigger subscription creation immediately
+        triggerSubscription();
         
         // Try to close the tab after a delay
         setTimeout(() => {
             window.close();
-        }, 5000);
-        
-        // Also try to close the tab after a longer delay
-        setTimeout(() => {
-            window.close();
-        }, 5000);
+        }, 10000);
     </script>
 </body>
 </html>
