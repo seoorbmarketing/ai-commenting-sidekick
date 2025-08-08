@@ -21,6 +21,26 @@ if (!process.env.OPENAI_API_KEY) {
 }
 
 module.exports = async (req, res) => {
+  const startTime = Date.now();
+  console.log('[Analyze] Request received at:', new Date().toISOString());
+  console.log('[Analyze] Request details:', {
+    method: req.method,
+    headers: {
+      origin: req.headers.origin,
+      authorization: req.headers.authorization ? 'Bearer...' : 'none'
+    },
+    bodyKeys: req.body ? Object.keys(req.body) : [],
+    bodySize: JSON.stringify(req.body || {}).length
+  });
+  
+  // Set a 9-second timeout for Vercel Hobby plan (10s limit minus buffer)
+  const timeoutId = setTimeout(() => {
+    console.error('[Analyze] Function timeout approaching - returning error');
+    if (!res.headersSent) {
+      res.status(504).json({ error: 'Request timeout - please try again' });
+    }
+  }, 9000);
+
   // Configure CORS
   if (!configureCORS(req, res)) {
     logSecurityEvent('CORS_BLOCKED', { 
@@ -31,33 +51,40 @@ module.exports = async (req, res) => {
   }
 
   if (req.method === 'OPTIONS') {
+    console.log('[Analyze] OPTIONS request - returning 200');
     res.status(200).end();
     return;
   }
 
   if (req.method !== 'POST') {
+    console.log('[Analyze] Invalid method:', req.method);
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
   const authHeader = req.headers.authorization;
   
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    console.log('[Analyze] No auth header or invalid format');
     return res.status(401).json({ error: 'Authentication required' });
   }
 
   const token = authHeader.replace('Bearer ', '');
+  console.log('[Analyze] Token received:', token.substring(0, 20) + '...');
   let user;
 
   try {
     // Verify user authentication
+    console.log('[Analyze] Verifying user authentication...');
     const { data: userData, error: authError } = await supabaseAdmin.auth.getUser(token);
     
     if (authError || !userData.user) {
+      console.log('[Analyze] Auth failed:', authError?.message);
       logSecurityEvent('AUTH_FAILED', { token: token.substring(0, 10) + '...' });
       return res.status(401).json({ error: 'Authentication failed' });
     }
     
     user = userData.user;
+    console.log('[Analyze] User authenticated:', user.id);
     
     // Rate limiting
     const rateLimitResult = await rateLimit(user.id, 'analyze');
@@ -148,6 +175,7 @@ Never use quotation marks around your response.`;
     const openaiClient = isUsingOwnApiKey ? new OpenAI({ apiKey: userApiKey }) : openai;
     
     // Call OpenAI API
+    console.log('[Analyze] About to call OpenAI API...');
     logSecurityEvent('OPENAI_REQUEST', { userId: user.id, usingOwnKey: isUsingOwnApiKey });
     
     const completion = await openaiClient.chat.completions.create({
@@ -158,8 +186,10 @@ Never use quotation marks around your response.`;
       user: user.id // For OpenAI's abuse monitoring
     });
 
+    console.log('[Analyze] OpenAI API call completed');
     const aiResponse = completion.choices[0].message.content;
     const tokensUsed = completion.usage?.total_tokens || 0;
+    console.log('[Analyze] Response length:', aiResponse.length, 'Tokens used:', tokensUsed);
 
     // Use credits (with transaction safety)
     let purchaseId = null;
@@ -271,6 +301,10 @@ Never use quotation marks around your response.`;
       : 0;
 
     // Success response
+    clearTimeout(timeoutId);
+    const elapsed = Date.now() - startTime;
+    console.log(`[Analyze] Success - completed in ${elapsed}ms`);
+    
     return res.status(200).json({
       success: true,
       response: aiResponse,
@@ -279,6 +313,9 @@ Never use quotation marks around your response.`;
     });
 
   } catch (error) {
+    clearTimeout(timeoutId);
+    const elapsed = Date.now() - startTime;
+    console.error(`[Analyze] Error after ${elapsed}ms:`, error.message);
     logSecurityEvent('API_ERROR', { 
       userId: user?.id,
       error: error.message,
