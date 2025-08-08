@@ -33,13 +33,13 @@ module.exports = async (req, res) => {
     bodySize: JSON.stringify(req.body || {}).length
   });
   
-  // Set a 9-second timeout for Vercel Hobby plan (10s limit minus buffer)
+  // Set a 8.5-second timeout for Vercel Hobby plan (10s limit minus buffer)
   const timeoutId = setTimeout(() => {
     console.error('[Analyze] Function timeout approaching - returning error');
     if (!res.headersSent) {
-      res.status(504).json({ error: 'Request timeout - please try again' });
+      res.status(504).json({ error: 'Request timeout - please try again with a smaller image' });
     }
-  }, 9000);
+  }, 8500);
 
   // Configure CORS
   if (!configureCORS(req, res)) {
@@ -164,7 +164,7 @@ Never use quotation marks around your response.`;
             type: 'image_url',
             image_url: {
               url: imageDataUrl,
-              detail: 'high'
+              detail: 'low'  // Changed from 'high' to 'low' for faster processing
             }
           }
         ]
@@ -174,17 +174,26 @@ Never use quotation marks around your response.`;
     // Use user's API key if provided, otherwise use system key
     const openaiClient = isUsingOwnApiKey ? new OpenAI({ apiKey: userApiKey }) : openai;
     
-    // Call OpenAI API
+    // Call OpenAI API with timeout
     console.log('[Analyze] About to call OpenAI API...');
     logSecurityEvent('OPENAI_REQUEST', { userId: user.id, usingOwnKey: isUsingOwnApiKey });
     
-    const completion = await openaiClient.chat.completions.create({
-      model: 'gpt-4o',
-      messages: messages,
-      max_tokens: 300,
-      temperature: 0.7,
-      user: user.id // For OpenAI's abuse monitoring
-    });
+    // Create a timeout promise
+    const openaiTimeout = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('OpenAI API timeout')), 7000)
+    );
+    
+    // Race between OpenAI call and timeout
+    const completion = await Promise.race([
+      openaiClient.chat.completions.create({
+        model: 'gpt-4o-mini',  // Changed from gpt-4o to gpt-4o-mini for faster response
+        messages: messages,
+        max_tokens: 150,  // Reduced from 300 to 150 for faster generation
+        temperature: 0.7,
+        user: user.id // For OpenAI's abuse monitoring
+      }),
+      openaiTimeout
+    ]);
 
     console.log('[Analyze] OpenAI API call completed');
     const aiResponse = completion.choices[0].message.content;
