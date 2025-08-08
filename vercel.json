@@ -11,6 +11,14 @@
       "destination": "/api/$1"
     },
     {
+      "source": "/payment-success",
+      "destination": "/public/payment-success.html"
+    },
+    {
+      "source": "/payment-cancel",
+      "destination": "/public/payment-cancel.html"
+    },
+    {
       "source": "/",
       "destination": "/public/index.html"
     }
