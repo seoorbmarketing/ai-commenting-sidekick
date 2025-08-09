@@ -236,29 +236,62 @@ Never use quotation marks around your response.`;
         });
       }
       
-      // Use atomic update to prevent race conditions
-      // This directly decrements in the database without reading first
-      console.log('[Analyze] Calling use_credits RPC for user:', user.id);
-      const { data: creditResult, error: creditError } = await supabaseAdmin
-        .rpc('use_credits', {
-          p_user_id: user.id,
-          p_credits_to_use: 1
-        });
+      // Simple approach: Find and update in separate queries but with retry logic
+      let retries = 3;
+      let purchaseId = null;
+      let subscriptionId = null;
+      let creditDeducted = false;
       
-      console.log('[Analyze] Credit deduction result:', creditResult, 'Error:', creditError);
-      
-      if (creditError) {
-        console.error('Failed to deduct credit:', creditError);
-        return res.status(500).json({ 
-          error: 'Failed to deduct credit',
-          details: creditError?.message
-        });
+      while (retries > 0 && !creditDeducted) {
+        // Find the oldest credit purchase with remaining credits
+        const { data: creditPurchase, error: findError } = await supabaseAdmin
+          .from('credit_purchases')
+          .select('id, remaining_credits, subscription_id')
+          .eq('user_id', user.id)
+          .gt('remaining_credits', 0)
+          .or(`expires_at.is.null,expires_at.gt.${now}`)
+          .order('created_at', { ascending: true })
+          .limit(1)
+          .single();
+        
+        if (findError || !creditPurchase) {
+          console.error('No valid credit purchase found:', findError);
+          return res.status(402).json({ 
+            error: 'No valid credits found',
+            details: findError?.message
+          });
+        }
+        
+        // Attempt to deduct 1 credit with optimistic locking
+        const { data: creditResult, error: creditError } = await supabaseAdmin
+          .from('credit_purchases')
+          .update({ 
+            remaining_credits: creditPurchase.remaining_credits - 1,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', creditPurchase.id)
+          .eq('remaining_credits', creditPurchase.remaining_credits)  // Optimistic lock
+          .select()
+          .single();
+        
+        if (creditResult) {
+          creditDeducted = true;
+          purchaseId = creditPurchase.id;
+          subscriptionId = creditPurchase.subscription_id;
+          console.log('[Analyze] Credit deducted successfully, remaining:', creditResult.remaining_credits);
+        } else if (retries > 1) {
+          // Retry if failed (likely due to concurrent update)
+          console.log('[Analyze] Credit deduction failed, retrying...', retries - 1, 'attempts left');
+          retries--;
+          await new Promise(resolve => setTimeout(resolve, 100)); // Small delay before retry
+        } else {
+          console.error('Failed to deduct credit after retries:', creditError);
+          return res.status(500).json({ 
+            error: 'Failed to deduct credit - please try again',
+            details: 'Concurrent request conflict'
+          });
+        }
       }
-      
-      // The use_credits function returns the purchase_id and subscription_id
-      purchaseId = creditResult?.purchase_id || null;
-      subscriptionId = creditResult?.subscription_id || null;
-      console.log('[Analyze] Credit deducted successfully, purchase_id:', purchaseId);
     }
 
     // Log usage (without storing sensitive data)
