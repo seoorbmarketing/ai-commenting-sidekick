@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Payment Successful - AI Commenting Sidekick</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            background: #f5f5f5;
+        }
+        .container {
+            text-align: center;
+            background: white;
+            padding: 40px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            max-width: 400px;
+        }
+        .success-icon {
+            width: 64px;
+            height: 64px;
+            background: #22c55e;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 20px;
+        }
+        .success-icon::after {
+            content: '✓';
+            color: white;
+            font-size: 32px;
+            font-weight: bold;
+        }
+        h1 {
+            color: #333;
+            margin: 0 0 10px;
+        }
+        p {
+            color: #666;
+            margin: 10px 0;
+        }
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3498db;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-left: 10px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        #manual-message {
+            margin-top: 30px;
+            padding: 20px;
+            background: #f0f9ff;
+            border-radius: 5px;
+            display: none;
+        }
+        .extension-link {
+            display: inline-block;
+            margin-top: 15px;
+            padding: 10px 20px;
+            background: #3b82f6;
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+        }
+        .extension-link:hover {
+            background: #2563eb;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="success-icon"></div>
+        <h1>Payment Successful!</h1>
+        <p>Your subscription has been activated.</p>
+        <p>Redirecting back to extension<span class="loading"></span></p>
+        
+        <div id="manual-message">
+            <p><strong>Auto-redirect didn't work?</strong></p>
+            <p>Please close this tab and return to the extension. Your subscription will be active.</p>
+            <a href="#" class="extension-link" id="manual-redirect">Open Extension</a>
+        </div>
+    </div>
+
+    <script>
+        // Extract parameters
+        const params = new URLSearchParams(window.location.search);
+        const sessionId = params.get('session_id');
+        const type = params.get('type');
+        
+        // Trigger subscription creation immediately
+        async function triggerSubscription() {
+            if (!sessionId) {
+                console.error('No session ID found');
+                return;
+            }
+            
+            console.log('Triggering subscription for session:', sessionId);
+            
+            try {
+                const response = await fetch('/api/debug?action=manual-trigger', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ sessionId })
+                });
+                
+                const result = await response.json();
+                console.log('Manual trigger result:', result);
+                
+                if (response.ok) {
+                    document.getElementById('manual-message').innerHTML = `
+                        <p><strong>✅ Subscription activated successfully!</strong></p>
+                        <p>Please return to the extension window. Your ${type === 'subscription' ? 'Pro subscription' : 'credits'} are now active.</p>
+                        <p style="margin-top: 15px; font-size: 14px; color: #666;">You can close this tab.</p>
+                    `;
+                } else {
+                    console.error('Manual trigger failed:', result);
+                    document.getElementById('manual-message').innerHTML = `
+                        <p><strong>Payment completed successfully!</strong></p>
+                        <p>Please return to the extension window. Your ${type === 'subscription' ? 'Pro subscription' : 'credits'} will be activated shortly.</p>
+                        <p style="margin-top: 15px; font-size: 14px; color: #666;">If the subscription doesn't appear, please close and reopen the extension.</p>
+                    `;
+                }
+            } catch (error) {
+                console.error('Error triggering subscription:', error);
+                document.getElementById('manual-message').innerHTML = `
+                    <p><strong>Payment completed successfully!</strong></p>
+                    <p>Please return to the extension window. Your ${type === 'subscription' ? 'Pro subscription' : 'credits'} will be activated shortly.</p>
+                    <p style="margin-top: 15px; font-size: 14px; color: #666;">You can close this tab.</p>
+                `;
+            }
+            
+            document.getElementById('manual-message').style.display = 'block';
+            
+            // Remove the loading spinner
+            document.querySelector('.loading').parentElement.innerHTML = 'Processing your subscription...';
+        }
+        
+        // Trigger subscription creation immediately
+        triggerSubscription();
+        
+        // Try to close the tab after a delay
+        setTimeout(() => {
+            window.close();
+        }, 10000);
+    </script>
+</body>
+</html>
